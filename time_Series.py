@@ -3,6 +3,8 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_val_score
 
+#I. Model 1 (Linear regression)
+
 #import zillow data 
 real_estate=pd.read_csv("city_final.csv")
 real_estate1=pd.concat([real_estate,year],axis=1)
@@ -105,6 +107,81 @@ plt.hlines(y=0, xmin=0, xmax=len(coefs_avg), linestyles='dashed')
 plt.show() 
 
 
+##II. Model 2 (SARIMA)
+
+oc=real_estate1[real_estate1.CountyName=="Orange County"] #18,000+ observations 
+oc=oc[["new_date","value"]]
+oc_avg=oc.groupby('new_date')['value'].median()
+oc_avg=pd.DataFrame(oc_avg)
+oc_avg.reset_index(level=0,inplace=True)
+oc_avg=oc_avg.iloc[1:oc_avg.shape[0]]
+
+#create time series object 
+oc_avg.index=oc_avg['new_date']
+del(oc_avg['new_date']) 
+oc_avg=oc_avg.fillna(oc.mean())
+
+def tsplot(y, lags=None, figsize=(12, 7), style='bmh'):
+    """
+        Plot time series, its ACF and PACF, calculate Dickey–Fuller test
+        
+        y - timeseries
+        lags - how many lags to include in ACF, PACF calculation
+    """
+    if not isinstance(y, pd.Series):
+        y = pd.Series(y)
+        
+    with plt.style.context(style):    
+        fig = plt.figure(figsize=figsize)
+        layout = (2, 2)
+        ts_ax = plt.subplot2grid(layout, (0, 0), colspan=2)
+        acf_ax = plt.subplot2grid(layout, (1, 0))
+        pacf_ax = plt.subplot2grid(layout, (1, 1))
+        
+        y.plot(ax=ts_ax)
+        p_value = sm.tsa.stattools.adfuller(y)[1]
+        ts_ax.set_title('Time Series Analysis Plots\n Dickey-Fuller: p={0:.5f}'.format(p_value))
+        smt.graphics.tsa.plot_acf(y, lags=lags, ax=acf_ax)
+        smt.graphics.tsa.plot_pacf(y, lags=lags, ax=pacf_ax)
+        plt.tight_layout()
+        plt.savefig('stat2.png')
+
+tsplot(oc_avg.value) #p=0.10 (no reject null) 
+
+#1. take a 12 month difference 
+oc_avg_diff=oc_avg.value-oc_avg.value.shift(11)
+tsplot(oc_avg_diff[11:],lags=225) #p=0.10 
+
+export=pd.DataFrame(oc_avg)
+export.to_csv("oc_ts.csv")
+
+#2. take first differences
+oc_avg_diff1=oc_avg_diff-oc_avg_diff.shift(1)
+tsplot(oc_avg_diff[12:],lags=225) #p=0.11
+
+#SARIMA model parameters 
+p=4
+q=1
+d=1
+P=1
+Q=1
+D=1
+
+best_model=sm.tsa.statespace.SARIMAX(oc_avg.values, order=(p, d, q), 
+                                        seasonal_order=(P, D, Q, s)).fit(disp=-1)
+
+best_model.summary() 
+
+#residuals of the model
+tsplot(best_model.resid[11:],lags=225) #p<0.01 residuals are stat?
+forecast1=best_model.predict(12) #n_steps into the future? 
+forecast1=forecast1.reshape(238,1)
+
+#MSE
+oc_avg1=oc_avg.values
+oc_avg1=oc_avg1[12:oc_avg1.shape[0]]
+mse=(oc_avg1[:,0]-forecast1[:,0])**2
+mse.sum() 
 
 
 
